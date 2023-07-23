@@ -167,7 +167,7 @@ public class Utils {
         OkHttpClient okHttpClient = new OkHttpClient();
         final Request request = new Request.Builder()
                 .addHeader("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:102.0) Gecko/20100101 Firefox/102.0")
-                .addHeader("Cookie", "buvid3=94E87EE7-17DF-4AB5-5355-447F2577DC2F57173infoc; b_nut=1680933857; i-wanna-go-back=-1; b_ut=7; LIVE_BUVID=AUTO7216809544592942; _uuid=294F5F91-610CC-837C-57F5-73E1463B813768743infoc; header_theme_version=CLOSE; home_feed_column=5; nostalgia_conf=-1; CURRENT_FNVAL=4048; CURRENT_PID=1483e220-d618-11ed-aac1-253a3b835710; rpdid=|(u))YR|mu0J'uY)|mYJRRJ; hit-new-style-dyn=1; hit-dyn-v2=1; buvid4=934B8E0E-E1A4-CC20-24EB-6D2FB8C1508270064-023040819-7IPkCYvUp8X%2FUJVJMHaawA%3D%3D; buvid_fp_plain=undefined; FEED_LIVE_VERSION=V8; CURRENT_QUALITY=64; is-2022-channel=1; SESSDATA=316606a9%2C1705328365%2C76433%2A72Kq7I1z8wLnNNH2XKjwIhGZQ-soJNqUE77Iwq4msSbMnAqH1r7jEAe0gmHIrnZat593HKywAANAA; bili_jct=54f2880f60e113f2a621ac979a57c28b; fingerprint=aee1e223f77fe66609f2929e66412549; buvid_fp=aee1e223f77fe66609f2929e66412549; bp_video_offset_484097652=821172011555356700; innersign=0; PVID=6; b_lsid=7A6AD9C5_189815FB377; sid=n7fszfbz; browser_resolution=1513-1368; Hm_lvt_8a6e55dbd2870f0f5bc9194cddf32a02=1689863081,1690092718; Hm_lpvt_8a6e55dbd2870f0f5bc9194cddf32a02=1690092718")
+                .addHeader("Cookie", "buvidb_; d_column=; nostalg3D%3D; buvid_fp_plain=und718;")
                 .url(url)
                 .get()//默认就是GET请求，可以不写
                 .build();
