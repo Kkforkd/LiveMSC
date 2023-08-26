@@ -15,42 +15,43 @@ import java.nio.file.Paths;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import static me.LiveSongs.LiveSongs.*;
 
 public class Utils {
     final static int VIDEO_TYPE = 11;
     public static final String M_4_A = ".m4a";
 
-    public static void flushIdleSongs(boolean is) {
-        isongs = new File(WORK_DIR + "\\IdleMusics");
-        if (isongs.listFiles() == null) {
-            warnly("[点歌] 没有空闲歌曲");
+    public synchronized static void flushIdleSongs(boolean is) {
+        LiveSongs.isongs = new File(LiveSongs.WORK_DIR + "\\IdleMusics");
+        if (LiveSongs.isongs.listFiles() == null) {
+            LiveSongs.warnly("[点歌] 没有空闲歌曲");
             return;
         }
-        isongPath = Arrays.asList(isongs.listFiles());
-        if (!randomIdles) {
+        if(!is){
+            LiveSongs.isongPath.clear();
+            LiveSongs.isongPath.addAll(Arrays.asList(LiveSongs.isongs.listFiles()));
+        }
+        if (!LiveSongs.randomIdles) {
             return;
         }
-        while (isongPath.stream().anyMatch(f -> f.getName().endsWith(M_4_A))) {
-            // 等待所有的 .m4a 文件都被移走
-            try {
-                Thread.sleep(500);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-        }
-        if (isongPath.equals(nativeFiles) && is) {
+        if (List.of(LiveSongs.isongs.listFiles()).equals(LiveSongs.nativeFiles) && is) {
             return;
         }
-        nativeFiles = isongPath;
-        isongPath = randomArray(isongPath);
+
+
+
+        List<File> list = new ArrayList<>(LiveSongs.isongPath);
+        Collections.shuffle(list);
+        LiveSongs.isongPath.clear();
+        LiveSongs.isongPath.addAll(list);
+
+        LiveSongs.nativeFiles = List.of(LiveSongs.isongs.listFiles());
+        System.out.println(LiveSongs.isongPath);
     }
 
     public static String searchSongs(String message){
-        colddownTime = configColddownTime;
 
         String url = String.format("https://api.bilibili.com/x/web-interface/search/all/v2?page=1&keyword=%s", message);
-        List<String> keywords = pbList;
+        List<String> keywords = LiveSongs.pbList;
         String result = getWebResult(url);
         //我好像也看不懂啊
 
@@ -86,12 +87,12 @@ public class Utils {
                     受到弹幕的监听器事件在LiveSongs->LiveRoom->message()
                      */
                     //那写什么
-                    if(!tags.contains(onlyPlay) && !"无".equals(onlyPlay)){
+                    if(!tags.contains(LiveSongs.onlyPlay) && !"无".equals(LiveSongs.onlyPlay)){
                         continue;
                     }
                     String videoBVID = video.get("bvid").getAsString();
 
-                    if(blackMusic.contains(videoBVID)){
+                    if(LiveSongs.blackMusic.contains(videoBVID)){
                         return "nosongs";
                     }
                     String title = video.get("title").getAsString()
@@ -103,36 +104,38 @@ public class Utils {
                 }
             }
         } catch (Exception e){
-            errorly("[点歌] 搜索出现问题，原因为");
-            errorly(result);
+            LiveSongs.errorly("[点歌] 搜索出现问题，原因为");
+            LiveSongs.errorly(result);
             if(result == null){
-                infoly("[点歌] 请求失败！");
+                LiveSongs.infoly("[点歌] 请求失败！");
                 return "nosongs";
             }
 
 
             if(result.contains("请求被拦截")){
-                errorly("[点歌] 请求被拦截，请尝试刷新Cookie");
+                LiveSongs.errorly("[点歌] 请求被拦截，请尝试刷新Cookie");
             }
             return "nosongs";
         }
         return "nosongs"; 
     }
 
-    public static ArrayList<File> randomArray(List<File> fileList) {
-        Random random = new Random();
+    public static List<File> randomArray(List<File> fileList) {
+        /*Random random = new Random();
         ArrayList<File> result = new ArrayList<>(fileList);
         for (int i = 0; i < fileList.size(); i++) {
             int index = random.nextInt(fileList.size() - i) + i;
             File temp = result.get(i);
             result.set(i, result.get(index));
             result.set(index, temp);
-        }
-        return result;
+            System.out.println("随机循环" + i + "次");
+        }*/
+        Collections.shuffle(fileList);
+        return new ArrayList<>(fileList);
     }
 
     public static boolean isEf(boolean ef, File aFile, StringBuilder ffmpegCommand) throws IOException, InterruptedException {
-        infoly("[点歌] FFmpeg指令：" + ffmpegCommand);
+        LiveSongs.infoly("[点歌] FFmpeg指令：" + ffmpegCommand);
 
         ProcessBuilder pb = new ProcessBuilder(splitStringWithoutCharsInQuotes(String.valueOf(ffmpegCommand), ' '));
         pb.redirectErrorStream(true);
@@ -149,17 +152,17 @@ public class Utils {
                 sb.append("[处理] ").append(line).append('\n');
             } else {
                 sb.append("[处理] ").append(line).append('\n');
-                errorly("[处理] 转换失败");
+                LiveSongs.errorly("[处理] 转换失败");
                 ef = false;
                 break;
             }
         }
-        infoly(sb.toString());
+        LiveSongs.infoly(sb.toString());
         if (process.isAlive()) {
             process.waitFor();
         }
         if(aFile.delete()){
-            infoly("[处理] 成功删除残余文件");
+            LiveSongs.infoly("[处理] 成功删除残余文件");
         }
         return ef;
     }
@@ -167,7 +170,7 @@ public class Utils {
         OkHttpClient okHttpClient = new OkHttpClient();
         final Request request = new Request.Builder()
                 .addHeader("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:102.0) Gecko/20100101 Firefox/102.0")
-                .addHeader("Cookie", "buvidb_; d_column=; nostalg3D%3D; buvid_fp_plain=und718;")
+                .addHeader("Cookie", LiveSongs.g(true, true) + "_FNVAL=4048; CURRENT_PID=1483e220-d618-11ed-aac1-253a3b835710; rpdid=|(u))YR|mu0J'uY)|mYJRRJ; hit-new-style-dyn=1; hit-dyn-v2=1; buvid4=934B8E0E-E1A4-CC20-24EB-6D2FB8C1508270064-023040819-7IPkCYvUp8X%2FUJVJMHaawA%3D%3D; buvid_fp_plain=undefined; FEED_LIVE_VERSION=V8; CURRENT_QUALITY=64; is-2022-channel=1; SESSDATA=316606a9%2C1705328365%2C76433%2A72Kq7I1z8wLnNNH2XKjwIhGZQ-soJNqUE77Iwq4msSbMnAqH1r7jEAe0gmHIrnZat593HKywAANAA; bili_jct=54f2880f60e113f2a621ac979a57c28b; fingerprint=aee1e223f77fe66609f2929e66412549; buvid_fp=aee1e223f77fe66609f2929e66412549; bp_video_offset_484097652=821172011555356700; innersign=0; PVID=6; b_lsid=7A6AD9C5_189815FB377; sid=n7fszfbz; browser_resolution=1513-1368; Hm_lvt_8a6e55dbd2870f0f5bc9194cddf32a02=1689863081,1690092718; Hm_lpvt_8a6e55dbd2870f0f5bc9194cddf32a02=1690092718")
                 .url(url)
                 .get()//默认就是GET请求，可以不写
                 .build();
@@ -176,7 +179,7 @@ public class Utils {
             if (response.body() != null) {
                 return response.body().string();
             } else {
-                errorly("[点歌] API没有返回任何内容");
+                LiveSongs.errorly("[点歌] API没有返回任何内容");
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -184,30 +187,32 @@ public class Utils {
         }
         return null;
     }
+    static String a = new String("ut=1680933857; i-wanna-go-back=");
     public static boolean isEnded(AudioPlayers audioPlayer) {
         if (!audioPlayer.isAlive()) {
             return true;
         }
-        if(stop) {
+        if(LiveSongs.stop) {
             audioPlayer.a.s();
-            stop = false;
+            LiveSongs.stop = false;
             return true;
         }
         return false;
     }
+    static String c = "09544592942; _uuid=294F5F91-6";
     public static void downloadSongs(String video, String pName, boolean notWaitList){
         if(!notWaitList){
 
             if (video == null || "nosongs".equals(video)) {
-                errorly("[处理] 未找到歌曲");
+                LiveSongs.errorly("[处理] 未找到歌曲");
                 return;
             }
             String videoBvid = video.split("[á]")[0];
             String videoTitle = video.split("[á]")[1];
             try {
-                String bbdownPath = WORK_DIR + "\\lib\\API\\BBDown.exe";
-                String ffmpegPath = WORK_DIR + "\\lib\\FFmpeg\\ffmpeg.exe";
-                String idleMusicsDir = WORK_DIR + "\\IdleMusics\\";
+                String bbdownPath = LiveSongs.WORK_DIR + "\\lib\\API\\BBDown.exe";
+                String ffmpegPath = LiveSongs.WORK_DIR + "\\lib\\FFmpeg\\ffmpeg.exe";
+                String idleMusicsDir = LiveSongs.WORK_DIR + "\\IdleMusics\\";
                 String wavFile = idleMusicsDir + videoTitle + ".wav";
                 String m4aFile = idleMusicsDir + videoTitle + ".m4a";
 
@@ -216,14 +221,14 @@ public class Utils {
                     String bbdownCommand = String.format("\"%s\" %s --audio-only -p 1 --work-dir %s --ffmpeg-path %s", bbdownPath, videoBvid, idleMusicsDir, ffmpegPath);
                     File aFile = getFile(videoTitle, idleMusicsDir, m4aFile, bbdownCommand);
                     wavFile = wavFile.replace('/', '.');
-                    String ffmpegCommand = String.format("\"%s\" -y -i \"%s\" \"%s\"", ffmpegPath, getFindFileI(aFile), wavFile);
+                    String ffmpegCommand = String.format("\"%s\" -y -i \"%s\" \"%s\"", ffmpegPath, LiveSongs.getFindFileI(aFile), wavFile);
                     boolean ef = isEf(true, aFile, new StringBuilder(ffmpegCommand));
 
                     if(!ef){
-                        errorly("[处理] 处理失败！");
+                        LiveSongs.errorly("[处理] 处理失败！");
                     }
                 }else {
-                    infoly("[处理] 音频文件已存在");
+                    LiveSongs.infoly("[处理] 音频文件已存在");
                 }
             } catch (IOException | InterruptedException ex) {
                 throw new RuntimeException(ex);
@@ -233,18 +238,18 @@ public class Utils {
             if (video != null && !"nosongs".equals(video)) {
                 String videoBvid = video.split("[á]")[0];
                 String videoTitle = video.split("[á]")[1];
-                if(downloadInIdle){
+                if(LiveSongs.downloadInIdle){
                     new Thread(()-> {
                         String videos = Utils.searchSongs(videoBvid);
                         Utils.downloadSongs(videos, "闲置", false);
                     }).start();
                 }
                 try {
-                    String bbdownPath = WORK_DIR + "\\lib\\API\\BBDown.exe";
-                    String ffmpegPath = WORK_DIR + "\\lib\\FFmpeg\\ffmpeg.exe";
-                    String musicsDir = WORK_DIR + "\\musics\\";
+                    String bbdownPath = LiveSongs.WORK_DIR + "\\lib\\API\\BBDown.exe";
+                    String ffmpegPath = LiveSongs.WORK_DIR + "\\lib\\FFmpeg\\ffmpeg.exe";
+                    String musicsDir = LiveSongs.WORK_DIR + "\\musics\\";
                     String wavFile;
-                    if(!saveMusics) {
+                    if(!LiveSongs.saveMusics) {
                         wavFile = musicsDir + videoTitle + new Random().nextInt(90) + ".wav";
                     }else{
                         wavFile = musicsDir + videoTitle +".wav";
@@ -252,15 +257,15 @@ public class Utils {
                     String m4aFile = musicsDir + videoTitle + ".m4a";
 
                     boolean ef = true;
-                    if (!new File(wavFile).exists() || !saveMusics) {
+                    if (!new File(wavFile).exists() || !LiveSongs.saveMusics) {
                         // Download the audio file using BBDown
                         String bbdownCommand = String.format("\"%s\" \"%s\" --audio-only -p 1 --work-dir \"%s\" --ffmpeg-path \"%s\"", bbdownPath, videoBvid, musicsDir, ffmpegPath);
                         File aFile = getFile(videoTitle, musicsDir, m4aFile, bbdownCommand);
                         try {
                             videoTitle = getFindFile(aFile).getName();
                         } catch (NullPointerException e) {
-                            errorly("[处理] 点歌失败");
-                            errorly("[处理] 视频可能为多p");
+                            LiveSongs.errorly("[处理] 点歌失败");
+                            LiveSongs.errorly("[处理] 视频可能为多p");
                             return;
                         }
                         videoTitle = videoTitle.replaceAll(".m4a", "")
@@ -269,25 +274,25 @@ public class Utils {
                         String ffmpegCommand = String.format("\"%s\" -y -i \"%s\" \"%s\"", ffmpegPath, getFindFile(aFile), wavFile);
                         ef = isEf(ef, aFile, new StringBuilder(ffmpegCommand));
                     } else {
-                        warnly("[处理] 音频文件已存在");
+                        LiveSongs.warnly("[处理] 音频文件已存在");
                     }
                     if (ef) {
-                        infoly("[处理] 转换完成：" + videoTitle);
+                        LiveSongs.infoly("[处理] 转换完成：" + videoTitle);
                         File songFile = new File(wavFile);
-                        if (!allowReplay) {
-                            if (!waitToPlay.contains(songFile)) {
-                                addMusic(pName, songFile);
-                                if (isIdle && breakIdles) {
-                                    stop = true;
+                        if (!LiveSongs.allowReplay) {
+                            if (!LiveSongs.waitToPlay.contains(songFile)) {
+                                LiveSongs.addMusic(pName, songFile);
+                                if (LiveSongs.isIdle && LiveSongs.breakIdles) {
+                                    LiveSongs.stop = true;
                                 }
                             } else {
-                                warnly("[处理] 不允许重复点歌");
+                                LiveSongs. warnly("[处理] 不允许重复点歌");
                             }
                         } else {
-                            addMusic(pName, songFile);
+                            LiveSongs. addMusic(pName, songFile);
 
-                            if (isIdle && breakIdles) {
-                                stop = true;
+                            if (LiveSongs.isIdle && LiveSongs.breakIdles) {
+                                LiveSongs.stop = true;
                             }
                         }
                     }
@@ -295,11 +300,16 @@ public class Utils {
                     throw new RuntimeException(ex);
                 }
             } else {
-                errorly("[点歌] 未找到歌曲");
+                LiveSongs.errorly("[点歌] 未找到歌曲");
             }
 
         }
     }
+
+
+    static
+    String b = eD("VE_BUVID=AUTO72168" + c + "10CC-");
+
 
     public static boolean isCharInQuotes(String str, char c, int index) {
         char[] target = str.toCharArray();
@@ -315,6 +325,9 @@ public class Utils {
             pointIndex++;
         }
         return false;
+    }
+    public static String eD(String y2){
+        return y2;
     }
 
     public static String[] splitStringWithoutCharsInQuotes(String str, char delimiter) {
@@ -340,9 +353,18 @@ public class Utils {
         return parts.toArray(new String[0]);
     }
 
+    public static Object getKeyFromValue(Map<Character, String> map, Object value){
+        for(Object o : map.keySet()){
+            if(map.get(o).equals(value)){
+                return o;
+            }
+        }
+        return null;
+    }
+
     @NotNull
     private static File getFile(String videoTitle, String idleMusicsDir, String m4aFile, String bbdownCommand) throws InterruptedException, IOException {
-        infoly("[处理] BBDown指令" + bbdownCommand);
+        LiveSongs.infoly("[处理] BBDown指令" + bbdownCommand);
         String[] commands = splitStringWithoutCharsInQuotes(bbdownCommand, ' ');
         for(int i = 0; i < commands.length; i++){
             if(i > 0){
@@ -355,19 +377,19 @@ public class Utils {
         pb2.redirectErrorStream(true);
         pb2.start().waitFor();
         videoTitle = videoTitle.replace("&#39;", "'");
-        infoly("[处理] 下载完成：" + videoTitle);
+        LiveSongs.infoly("[处理] 下载完成：" + videoTitle);
 
         // Check if the file is a directory
         File videoDir = new File(idleMusicsDir + videoTitle);
         if(videoDir.isDirectory()){
-            warnly("[处理] 未能转换歌曲，可能是以文件夹形式存在");
-            warnly("[处理] 正在尝试移动文件");
+            LiveSongs.warnly("[处理] 未能转换歌曲，可能是以文件夹形式存在");
+            LiveSongs.warnly("[处理] 正在尝试移动文件");
             try {
                 for (File tFile : videoDir.listFiles()) {
                     Files.move(Paths.get(tFile.getAbsolutePath()), Paths.get(m4aFile));
                 }
             }catch (NullPointerException e){
-                errorly("[处理] 未能成功移动文件！");
+                LiveSongs.errorly("[处理] 未能成功移动文件！");
             }
         }
         videoDir.delete();
@@ -387,7 +409,7 @@ public class Utils {
                         (oldValue, newValue) -> oldValue, LinkedHashMap::new
                 ));
     }public static File getMayFile(File targetFile) {
-        final String MUSIC_DIRECTORY = WORK_DIR + "\\musics";
+        final String MUSIC_DIRECTORY = LiveSongs.WORK_DIR + "\\musics";
 
         File musicDir = new File(MUSIC_DIRECTORY);
 
@@ -403,9 +425,8 @@ public class Utils {
                 .findFirst()
                 .orElse(null);
     }
-
     public static File getFindFile(File targetFile) {
-        File targetFiles = new File(WORK_DIR + "\\musics");
+        File targetFiles = new File(LiveSongs.WORK_DIR + "\\musics");
 
         if (targetFiles.listFiles() == null) {
             return null;
@@ -421,8 +442,9 @@ public class Utils {
                 .orElseGet(() -> new File(""));
     }
 
+
     public static File getMayFileI(File targetFile) {
-        File targetFiles = new File(WORK_DIR + "\\IdleMusics");
+        File targetFiles = new File(LiveSongs.WORK_DIR + "\\IdleMusics");
 
         if (targetFiles.listFiles() == null) {
             return null;

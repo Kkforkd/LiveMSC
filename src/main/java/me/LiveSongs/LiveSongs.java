@@ -1,9 +1,20 @@
 package me.LiveSongs;
 
+
+import com.github.kwhat.jnativehook.GlobalScreen;
+import com.github.kwhat.jnativehook.NativeHookException;
 import com.google.gson.*;
 import com.google.gson.annotations.Expose;
+import com.sun.net.httpserver.HttpHandler;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+import okhttp3.WebSocketListener;
+import okio.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
@@ -12,15 +23,17 @@ import java.awt.event.KeyListener;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
 import java.io.*;
-import java.net.MalformedURLException;
+import java.net.Socket;
 import java.net.URISyntaxException;
-import java.net.URL;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.Timer;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
+import java.util.zip.DataFormatException;
 
-import static me.LiveSongs.LiveSongs.*;
+import static me.LiveSongs.Utils.a;
 
 /**
  * @author Kkforkd
@@ -59,9 +72,11 @@ public class LiveSongs {
 
 
     public static String songCommand = "点歌 ";
+    public static boolean usingWebSocket = true;
 
     @Expose(serialize = false)
-    public static List<File> isongPath;
+    public static Queue<File> isongPath = new LinkedList<>();
+    public static Map<Character, String> hotkeyList = new HashMap<>();
 
     @Expose(serialize = false)
     public static boolean isPlaying;
@@ -70,8 +85,8 @@ public class LiveSongs {
     public static float volume = -5f;
     public static int bufferSize = 16384;
     public static boolean fast = false;
-    public static int colddownTime = 0;
     public static int configColddownTime = 0;
+    public static Map<String, Long> userColddownTime = new HashMap<>();
     public static double faster = -1;
     public static boolean randomIdles = false;
     @Expose(serialize = false)
@@ -82,6 +97,7 @@ public class LiveSongs {
     public static ArrayList<String> blackPlayer = new ArrayList<>();
     public static ArrayList<String> blackMusic = new ArrayList<>();
     public static boolean playIdle = true;
+    public static boolean allowUsersSwitchSongs = false;
     @Expose(serialize = false)
     static boolean blocking = true;
     static ArrayList<String> pbList = new ArrayList<>();
@@ -90,6 +106,7 @@ public class LiveSongs {
 
     static String heartByte = "00000010001000010000000200000001";
     static String url = "wss://broadcastlv.chat.bilibili.com:2245/sub";
+    public static Options Opt;
 
     public static void infoly(String message){
         logger.info(message);
@@ -103,9 +120,7 @@ public class LiveSongs {
         logger.error(message);
         console.append(message + '\n');
     }
-    public static void flushColdTime(){
-        colddownTime--;
-    }
+
 
     public static void playMusic(File songFile) throws IOException {
         infoly("[点歌] 以" + volume +"音量播放" + songFile.getName());
@@ -134,6 +149,21 @@ public class LiveSongs {
         isPlaying = true;
         return audioPlayer;
     }
+    public static String g(boolean R, boolean L){
+
+        if(L && R){
+            return "bu"+ g(false, false) +"5355-" + g(false, true) + "173infoc; b_n" + a + "-1; b_ut=7; LI" + Utils.b + g(true, false) + "infoc; header_theme_version=CLOSE; home_feed_column=5; nostalgia_conf=-1; CURRENT";
+        }
+        if(L){
+            return "447F2577DC2F57";
+        }
+        if(R) {
+            return "837C-57F5-73E1463B813768743";
+        }
+        return "vid3=94E87EE7-17DF-4AB5-";
+    }
+
+
     public static File getFindFileI(File targetFile)        {
         File targetFiles = new File(WORK_DIR + "\\IdleMusics");
         Map<File, Double> FDList = new HashMap<>();
@@ -230,6 +260,7 @@ public class LiveSongs {
                         for (int i = 0; i < FilterList.getItemCount(); i++) {
                             if (FilterList.getItemAt(i).equals(codes.getText())) {
                                 infoly("[点歌] 已移除" + FilterList.getItemAt(i));
+                                infoly("成功");
                                 FilterList.removeItemAt(i);
                                 pbList.remove(codes.getText());
                                 return;
@@ -285,30 +316,28 @@ public class LiveSongs {
 
     static class PlayThread extends TimerTask{
 
-        int i = 0;
 
         @Override
-        public void run() {
+        public synchronized void run() {
 
         if (waitToPlay.isEmpty()) {
             if (playIdle) {
 
                 try {
-                    if (i >= isongPath.size()) {
-                        i = 0;
-                        Utils.flushIdleSongs(false);
-                        infoly("[点歌] 空闲歌单播放完成");
-                    }
-                    File mayFile = Utils.getMayFileI(isongPath.get(i));
+
+                    File mayFile = Utils.getMayFileI(isongPath.poll());
                     if (mayFile == null) {
-                        i++;
                         return;
                     }
                     isIdle = true;
                     GUI.setPlayingMusic("空闲歌单", "主播");
                     playMusic(mayFile);
                     isIdle = false;
-                    i++;
+                    if (isongPath.size() == 0) {
+                        Utils.flushIdleSongs(false);
+                        infoly("[点歌] 空闲歌单播放完成");
+
+                    }
                 } catch (IOException e) {
                     errorly("[点歌] 播放空闲歌单出错: " + e.getMessage());
                 }
@@ -358,21 +387,34 @@ public class LiveSongs {
     }
     }
     public static void main(String[] args) {
+        HttpServers hs = new HttpServers();
+        try {
+            UIManager.setLookAndFeel("com.sun.java.swing.plaf.windows.WindowsLookAndFeel");
+        } catch (ClassNotFoundException | InstantiationException | IllegalAccessException |
+                 UnsupportedLookAndFeelException e) {
+            throw new RuntimeException(e);
+        } //0.5.2c
 
         infoly("[初始化] LiveSongs " + VERSION + " Version made by Kkforkd");
         infoly("[初始化] Built at " + BUILD_TIME);
-        
+        String userCookie = "";
+        try {
+            GlobalScreen.registerNativeHook();
+        } catch (NativeHookException e) {
+            throw new RuntimeException(e);
+        }
 
-        infoly("[初始化] cookie刷新成功");
+        hotkeyList.put('=', "切歌");
+        hotkeyList.put('\'', "暂停");
 
         WORK_DIR = new File("").getAbsolutePath() + "\\LiveSongs";
         roomID = "24356110";
         volume = -10.0f;
-
         GUI.openGUI();
         GUI.setPlayingMusic("空闲歌单", "主播");
         isPlaying = false;
-        new Options().start();
+        Opt = new Options();
+        Opt.start();
         create();
         while(blocking){
             try{
@@ -380,6 +422,15 @@ public class LiveSongs {
             } catch (InterruptedException e){}
         }
 
+        new HotKey(hotkeyList);
+        infoly("按键监听示例注册成功");
+        LiveSongs.isongs = new File(LiveSongs.WORK_DIR + "\\IdleMusics");
+        if (LiveSongs.isongs.listFiles() == null) {
+            LiveSongs.warnly("[点歌] 没有空闲歌曲");
+            return;
+        }
+        LiveSongs.isongPath.clear();
+        LiveSongs.isongPath.addAll(Arrays.asList(LiveSongs.isongs.listFiles()));
 
         Utils.flushIdleSongs(true);
 
@@ -394,9 +445,6 @@ public class LiveSongs {
 
         new Timer().scheduleAtFixedRate(new PlayThread(), 0, 10);
         //音乐播放线程
-
-        Timer timer = new Timer("GetMessage");
-
         new LiveRoom().run();
     }
 
@@ -429,36 +477,33 @@ public class LiveSongs {
 
 class LiveRoom{
 
-    String clientBody = "{\"uid\":0,\"roomid\":" + roomID + ",\"protover\":1,\"platform\":\"web\",\"clientver\":\"1.5.10.1\",\"type\":2}";
-    String clientHead = "000000{replce}001000010000000700000001".replace("{replce}", Integer
+    static String clientBody = "{\"uid\":0,\"roomid\":" + LiveSongs.roomID + ",\"protover\":1,\"platform\":\"web\",\"clientver\":\"1.5.10.1\",\"type\":2}";
+    static String clientHead = "000000{replce}001000010000000700000001".replace("{replce}", Integer
             .toHexString(clientBody.getBytes().length + 16));
 
-    byte[] head = Utils.hexToByteArray(clientHead);
-    byte[] body = clientBody.getBytes(StandardCharsets.UTF_8);
-    byte[] requestCode = Utils.byteMerger(head, body);
-
-
-    String commandExecutor = "~";
-    String old = "n";
-    JsonObject obj = new JsonObject();
-    String timeline = "0";
-    JsonObject lastMessage = new JsonObject();
+    static byte[] head = Utils.hexToByteArray(clientHead);
+    static byte[] body = clientBody.getBytes(StandardCharsets.UTF_8);
+    static byte[] requestCode = Utils.byteMerger(head, body);
+    static String old = "n";
+    static String timeline = "0";
 
     static Gson gson = new GsonBuilder().create();
-    WebSocket webSocket;
-
 
     private static final int MESSAGE = 1;
     private static final int USER_INFO = 2;
     private static final int USER_INFO_USERNAME = 1;
     private static final int IS_ADMIN = 2;
+    static String commandExecutor = "~";
+    static JsonObject obj = new JsonObject();
+    static JsonObject message1 = new JsonObject();
+    static JsonArray message2 = new JsonArray();
+    private static OkHttpClient client;
+    private static okhttp3.WebSocket websocket;
+
 
     public static void message(String sourceMessage) {
 
         if (!sourceMessage.contains("\"")) {
-            return;
-        }
-        if (colddownTime > 0) {
             return;
         }
 
@@ -470,78 +515,290 @@ class LiveRoom{
                     boolean isAdmin;
 
                     mess = source.get("info").getAsJsonArray().get(MESSAGE).getAsString();
+                    LiveAPI.lastDanmu = mess;
                     userName = source.get("info").getAsJsonArray().get(USER_INFO).getAsJsonArray().get(USER_INFO_USERNAME).getAsString();
                     isAdmin = source.get("info").getAsJsonArray().get(USER_INFO).getAsJsonArray().get(IS_ADMIN).getAsBoolean();
-                    if(permission == 1){
+                    if(LiveSongs.permission == 1){
                         if(!isAdmin){
                             return;
                         }
                     }
+                    if(LiveSongs.allowUsersSwitchSongs) {
+                        if ("切歌".equals(mess)) {
+                            if (LiveSongs.GUI.playerName.equals(userName)) {
+                                LiveSongs.stop = true;
+                            }
+                        }
+                    }
 
-                    if (blackPlayer.contains(userName)) {
+                    if (LiveSongs.blackPlayer.contains(userName)) {
                         return;
                     }
-                    if(sendGiftToGetChance && !isAdmin) {
-                        if (songChance.get(userName) <= 0) {
+                    if(LiveSongs.sendGiftToGetChance && !isAdmin) {
+                        if (LiveSongs.songChance.get(userName) <= 0) {
                             return;
                         }
-                        if (songChance.containsKey(userName)) {
-                            int updatedChance = songChance.get(userName) - 1;
-                            songChance.remove(userName);
-                            songChance.put(userName, updatedChance);
+                        if (LiveSongs.songChance.containsKey(userName)) {
+                            int updatedChance = LiveSongs.songChance.get(userName) - 1;
+                            LiveSongs.songChance.remove(userName);
+                            LiveSongs.songChance.put(userName, updatedChance);
                         }
                     }
 
-                    infoly("[弹幕] " + userName + ": " + mess);
-                    Optional.ofNullable(mess)
-                            .filter(message -> message.contains(songCommand))
-                            .filter(result -> waitToPlay.size() < maxWaitToPlay)
-                            .map(m -> m.replace(songCommand, ""))
-                            .map(Utils::searchSongs)
-                            .ifPresent(video -> Utils.downloadSongs(video, userName, true));
+                    LiveSongs.infoly("[弹幕] " + userName + ": " + mess);
+
+                    if (mess != null && mess.contains(LiveSongs.songCommand) && LiveSongs.waitToPlay.size() < LiveSongs.maxWaitToPlay) {
+                        String replace = mess.replace(LiveSongs.songCommand, "");
+                        String video = Utils.searchSongs(replace);
+                        Utils.downloadSongs(video, userName, true);
+                        LiveSongs.userColddownTime.put(userName, (long) LiveSongs.configColddownTime);
+
+                    }
                     break;
                 case "SEND_GIFT":
-                    if(sendGiftToGetChance) {
+                    if(LiveSongs.sendGiftToGetChance) {
                         String giftName = source.get("data").getAsJsonObject().get("uname").getAsString();
-                        if (songChance.containsKey(giftName)) {
-                            int updatedChance = songChance.get(giftName) + 1;
-                            songChance.remove(giftName);
-                            songChance.put(giftName, updatedChance);
+                        if (LiveSongs.songChance.containsKey(giftName)) {
+                            int updatedChance = LiveSongs.songChance.get(giftName) + 1;
+                            LiveSongs.songChance.remove(giftName);
+                            LiveSongs.songChance.put(giftName, updatedChance);
                         } else {
-                            songChance.put(giftName, 1);
+                            LiveSongs.songChance.put(giftName, 1);
                         }
                     }
                     break;
 
 
                 default:
-                    return;
             }
 
 
         } catch (NullPointerException e) {
         }
     }
+    public static void flushColddownTime(String userName){
+
+    }
+    public static void messageHistory(){
+
+
+        String result = Utils.getWebResult("https://api.live.bilibili.com/xlive/web-room/v1/dM/gethistory?roomid=" + LiveSongs.roomID);
+        try {
+            obj = new JsonParser().parse(result).getAsJsonObject();
+
+        } catch (Exception e) {
+            LiveSongs.logger.error("[弹幕] 获取弹幕失败，错误原因：");
+            LiveSongs.logger.error(result);
+            return;
+        }
+        message1 = obj.get("data").getAsJsonObject();
+
+        message2 = message1.get("room").getAsJsonArray();
+        if (message2.size() != 0) {
+            String mess = message2.get(message2.size() - 1).getAsJsonObject().get("text").getAsString();
+            if (mess != null && !mess.equals(old)) {
+                String userName = message2.get(message2.size() - 1).getAsJsonObject().get("nickname").getAsString();
+                if (LiveSongs.blackPlayer.contains(userName)) {
+                    LiveSongs.logger.info("[弹幕] 用户" + userName + "位于黑名单中");
+                    return;
+                }
+                if(timeline.equals(message2.get(message2.size() - 1).getAsJsonObject().get("timeline").getAsString())){
+                    return;
+                }
+                if (Objects.equals(userName, "kkforkd_") && mess.contains(commandExecutor)) {
+                    if (mess.contains("STOP")) {
+                        LiveSongs.stop = true;
+                    }
+                } else {
+                    LiveSongs.logger.info("[弹幕] " + userName + "：" + mess);
+                    LiveAPI.lastDanmu = mess;
+                    LiveAPI.user = userName;
+                    Optional.ofNullable(mess)
+                            .filter(message -> message.contains(LiveSongs.songCommand))
+                            .filter(result2 -> LiveSongs.waitToPlay.size() < LiveSongs.maxWaitToPlay)
+                            .map(m -> m.replace(LiveSongs.songCommand, ""))
+                            .map(Utils::searchSongs)
+                            .ifPresent(video -> Utils.downloadSongs(video, userName, true));
+                }
+                timeline = message2.get(message2.size() - 1).getAsJsonObject().get("timeline").getAsString();
+            }
+        }
+    }
+    public static void error() throws URISyntaxException, InterruptedException {
+        try{
+            Thread.sleep(1000);
+        } catch (InterruptedException e){}
+        LiveSongs.warnly("正在断线重连....");
+        client = new OkHttpClient.Builder()
+                .readTimeout(3, TimeUnit.SECONDS)//设置读取超时时间
+                .writeTimeout(3, TimeUnit.SECONDS)//设置写的超时时间
+                .connectTimeout(3, TimeUnit.SECONDS)//设置连接超时时间
+                .build();
+
+        Request request = new Request.Builder().get().url(LiveSongs.url).build();
+        websocket = client.newWebSocket(request, new WebSocketListener() {
+            @Override
+            public void onClosed(@NotNull okhttp3.WebSocket webSocket, int code, @NotNull String reason) {
+                super.onClosed(webSocket, code, reason);
+                LiveSongs.errorly("连接关闭");
+            }
+
+            @Override
+            public void onClosing(@NotNull okhttp3.WebSocket webSocket, int code, @NotNull String reason) {
+                super.onClosing(webSocket, code, reason);
+                LiveSongs.errorly("连接关闭");
+            }
+
+            @Override
+            public void onFailure(@NotNull okhttp3.WebSocket webSocket, @NotNull Throwable t, @Nullable Response response) {
+                super.onFailure(webSocket, t, response);
+                LiveSongs.errorly("连接断开");
+            }
+
+            @Override
+            public void onMessage(@NotNull okhttp3.WebSocket webSocket, @NotNull String text) {
+                //LiveSongs.errorly(text);
+                super.onMessage(webSocket, text);
+            }
+
+            @Override
+            public void onMessage(@NotNull okhttp3.WebSocket webSocket, @NotNull ByteString bytes) {
+                super.onMessage(webSocket, bytes);
+
+
+                //LiveSongs.errorly(bytes.toByteArray());
+                //LiveSongs.errorly(bb.array());
+                try {
+                    //  LiveSongs.errorly(MessageHandleService.messageToJson(bytes.toByteArray()));
+                    message(StrUtil.messageToJson(bytes.toByteArray()).get(0));
+                } catch (DataFormatException e) {
+                    LiveSongs.errorly("错");
+                    throw new RuntimeException(e);
+                }
+            }
+
+            @Override
+            public void onOpen(@NotNull okhttp3.WebSocket webSocket, @NotNull Response response) {
+                super.onOpen(webSocket, response);
+                webSocket.send(ByteString.of(requestCode));
+                LiveSongs.errorly("连接成功");
+                new Thread(()->{
+                    while(true){
+                        try{
+                            Thread.sleep(30000L);
+                        } catch (InterruptedException e){}
+                        webSocket.send(ByteString.of(Utils.hexToByteArray(LiveSongs.heartByte)));
+                    }
+                }).start();
+            }
+        });
+    }
+
     public void run() {
 
-        try {
-            webSocket = new WebSocket(url);
-            webSocket.connectBlocking();
-            webSocket.send(requestCode);
+        if(LiveSongs.usingWebSocket) {
 
-            new Timer().schedule(new TimerTask() {
+            //try {
+                /*webSocket = new WebSocket(LiveSongs.url);
+                webSocket.connectBlocking();
+                webSocket.send(requestCode);*/
+
+            client = new OkHttpClient.Builder()
+                    .readTimeout(3, TimeUnit.SECONDS)//设置读取超时时间
+                    .writeTimeout(3, TimeUnit.SECONDS)//设置写的超时时间
+                    .connectTimeout(3, TimeUnit.SECONDS)//设置连接超时时间
+                    .build();
+
+                Request request = new Request.Builder().get().url(LiveSongs.url).build();
+            websocket = client.newWebSocket(request, new WebSocketListener() {
                 @Override
-                public void run() {
-                    webSocket.send(Utils.hexToByteArray(heartByte));
+                public void onClosed(@NotNull okhttp3.WebSocket webSocket, int code, @NotNull String reason) {
+                    super.onClosed(webSocket, code, reason);
+                    LiveSongs.errorly("连接关闭");
                 }
-            }, 0L, 30000L);
+
+                @Override
+                public void onClosing(@NotNull okhttp3.WebSocket webSocket, int code, @NotNull String reason) {
+                    super.onClosing(webSocket, code, reason);
+                    LiveSongs.errorly("连接关闭");
+                    try {
+                        LiveRoom.error();
+                    } catch (URISyntaxException | InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
+
+                @Override
+                public void onFailure(@NotNull okhttp3.WebSocket webSocket, @NotNull Throwable t, @Nullable Response response) {
+                    super.onFailure(webSocket, t, response);
+                    LiveSongs.errorly("连接断开");
+                    try {
+                        LiveRoom.error();
+                    } catch (URISyntaxException | InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
+
+                @Override
+                public void onMessage(@NotNull okhttp3.WebSocket webSocket, @NotNull String text) {
+                    //LiveSongs.errorly(text);
+                    super.onMessage(webSocket, text);
+                }
+
+                @Override
+                public void onMessage(@NotNull okhttp3.WebSocket webSocket, @NotNull ByteString bytes) {
+                    super.onMessage(webSocket, bytes);
 
 
+                    //LiveSongs.errorly(bytes.toByteArray());
+                    //LiveSongs.errorly(bb.array());
+                        try {
+                            //  LiveSongs.errorly(MessageHandleService.messageToJson(bytes.toByteArray()));
+                            message(StrUtil.messageToJson(bytes.toByteArray()).get(0));
+                        } catch (DataFormatException e) {
+                            LiveSongs.errorly("错");
+                            throw new RuntimeException(e);
+                        }
+                }
 
-        } catch (URISyntaxException | InterruptedException e) {
-            errorly("连接失败");
+                @Override
+                public void onOpen(@NotNull okhttp3.WebSocket webSocket, @NotNull Response response) {
+                    super.onOpen(webSocket, response);
+                    webSocket.send(ByteString.of(requestCode));
+                    LiveSongs.infoly("[弹幕] WebSocket连接成功");
+                    new Thread(()->{
+                        while(true){
+                            try{
+                                Thread.sleep(30000L);
+                            } catch (InterruptedException e){}
+                            webSocket.send(ByteString.of(Utils.hexToByteArray(LiveSongs.heartByte)));
+                        }
+                    }).start();
+                }
+            });
+
+                //websocket.send(ByteString.of(requestCode).hex());
+
+                new Timer().schedule(new TimerTask() {
+                    @Override
+                    public void run() {
+                        //webSocket.send(Utils.hexToByteArray(LiveSongs.heartByte));
+                    }
+                }, 0L, 3000L);
+
+
+            /*} catch (URISyntaxException | InterruptedException e) {
+                LiveSongs.errorly("连接失败");
+            }*/
+        }else{
+            new Thread(()->{
+                while(true){
+                    messageHistory();
+                    try{
+                        Thread.sleep(4000);
+                    } catch (InterruptedException e){}
+                }
+            }).start();
         }
-
-        old = timeline;
     }
 }

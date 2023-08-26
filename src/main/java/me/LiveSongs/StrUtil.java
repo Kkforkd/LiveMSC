@@ -1,9 +1,53 @@
 package me.LiveSongs;
 
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.zip.DataFormatException;
+import java.util.zip.Inflater;
+
 /**
  * @author kKofkrd2
  */
 public class StrUtil {
+
+    public static List<String> messageToJson(byte[] messageBytes) throws DataFormatException {
+        byte[] mainMessageBytes = Arrays
+                .copyOfRange(messageBytes, 16, messageBytes.length);
+
+        if (messageBytes[16] != 120) {
+            return Arrays.asList(new String(mainMessageBytes, StandardCharsets.UTF_8));
+        }
+
+        // 解压缩弹幕信息
+        byte[] newByte = new byte[1024 * 5];
+        Inflater inflater = new Inflater();
+        inflater.setInput(mainMessageBytes);
+        newByte = Arrays.copyOfRange(newByte, 16, inflater.inflate(newByte));
+        return splitStringToJson(new String(newByte, StandardCharsets.UTF_8));
+    }
+    private static List<String> splitStringToJson(String str) {
+        List<String> result = new ArrayList<>();
+        for (int i = 1, count = 1; i < str.length(); i++) {
+
+            if (str.charAt(i) == '{') {
+                count++;
+            } else if (str.charAt(i) == '}') {
+                count--;
+            }
+
+            if (count == 0) {
+                result.add(str.substring(0, i + 1));
+                int nextIndex = str.indexOf("{", i + 1);
+                if (nextIndex != -1) {
+                    result.addAll(splitStringToJson(str.substring(nextIndex)));
+                }
+                return result;
+            }
+        }
+        return result;
+    }
 
     private static String longestCommonSubstringNoOrder(String strA, String strB){
         if(strA.length() >= strB.length()){

@@ -13,8 +13,6 @@ public class AudioPlayers {
     public AudioPlayers(File audioFile, float volume) {
         this.audioFile = audioFile;
         this.volume = volume;
-        LiveSongs.infoly("[音频] 初始化为" + volume + "音量");
-        LiveSongs.infoly("[音频] 播放" + audioFile.getName());
     }
 
     public void play() throws IOException {
